@@ -102,8 +102,10 @@ def load_img(path, image_resolution):
 
     #expand_animations = False needed, otherwise gif format isnt proper
     img = tf.image.decode_image(img, channels=3, expand_animations = False)  
+    img = tf.image.convert_image_dtype(img, tf.float32)
     img = tf.image.resize(img, [image_resolution, image_resolution])
-    img = img / 255.0  # Normalize to [0, 1]
+    #img = img / 255.0  # Normalize to [0, 1]  <-    img = tf.image.convert_image_dtype(img, tf.float32) ez elvileg már normalizál
+
     return img
 
 def make_labels(image_metadata):

@@ -17,9 +17,12 @@ def is_species_venomous(encoded_id: int) -> int:
     return int(enc2venom[encoded_id])
 
 
+
+
 def venom_weighted_accuracy(y_pred_species, y_true_species, y_pred_venom_spec, y_true_venom_spec):
     # max possible loss for this sample (2 if safe, 5 if venomous)
     denom_weights = np.where(y_true_venom_spec == 1, 5.0, 2.0)
+
 
     # matrix, correct species pred is 1, incorrect is 0
     correct_mask = (y_pred_species == y_true_species)

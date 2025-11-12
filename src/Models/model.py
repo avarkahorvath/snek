@@ -4,9 +4,9 @@ from tensorflow.keras import Model
 from re import X
 
 def build_cnn(num_species: int, IMAGE_RESOLUTION=28):
-    #input = Input(shape=(IMAGE_RESOLUTION, IMAGE_RESOLUTION, 3))
-    input = Input(shape=(None, None, 3))
-    #x = Rescaling(1./255)(input)
+    input = Input(shape=(IMAGE_RESOLUTION, IMAGE_RESOLUTION, 3))
+    #input = Input(shape=(None, None, 3))
+    x = Rescaling(1./255)(input)
 
     x = Conv2D(32, (3,3), padding='same', activation="relu")(input)
     x = MaxPooling2D((2,2), padding='valid')(x)
