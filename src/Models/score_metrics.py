@@ -47,36 +47,48 @@ def venom_weighted_accuracy(y_pred_species, y_true_species, y_pred_venom_spec, y
     denom = denom_weights.sum()
     return 1.0 - (loss.sum() / denom if denom else 0.0)
 
-
 def get_scores(model, image_metadata, test_dataset, venom_threshold=0.5):
-
-    # prediction from model
-    species_pred_probs, venom_pred_probs = model.predict(test_dataset, verbose=1)
-
-    # true information
     y_species_true_batches = []
-    y_venom_true_batches = []
+    y_venom_true_batches   = []
+    species_pred_batches   = []
+    venom_pred_batches     = []
 
-    enc2venom=make_enc2venom(image_metadata)
+    enc2venom = make_enc2venom(image_metadata)
 
+    # EGYETLEN bejárás: itt kérjük le a labelt és a predikciót is
     for images, labels in test_dataset:
+        # true labels
         y_species_true_batches.append(labels["species"].numpy())
         y_venom_true_batches.append(labels["venom"].numpy())
 
+        # model prediction batchre
+        species_probs_batch, venom_probs_batch = model.predict_on_batch(images)
+        species_pred_batches.append(species_probs_batch)
+        venom_pred_batches.append(venom_probs_batch)
+
+    # összeconcatenálás
     y_species_true = np.concatenate(y_species_true_batches, axis=0)
     y_venom_true   = np.concatenate(y_venom_true_batches, axis=0)
 
-    # hard predictions
+    species_pred_probs = np.concatenate(species_pred_batches, axis=0)
+    venom_pred_probs   = np.concatenate(venom_pred_batches, axis=0)
+
+    # hard preds
     y_species_pred = np.argmax(species_pred_probs, axis=1)
     y_venom_pred   = (venom_pred_probs.reshape(-1) >= venom_threshold).astype(int)
 
-    # 4) metrics
+    # scikit-learn metrikák
     species_accuracy = accuracy_score(y_species_true, y_species_pred)
     macro_f1         = f1_score(y_species_true, y_species_pred, average="macro")
     venom_accuracy   = accuracy_score(y_venom_true, y_venom_pred)
 
-
-    weighted_species_accuracy = venom_weighted_accuracy(y_species_pred, y_species_true, enc2venom[y_species_pred], y_venom_true)
+    # venom-weighted species accuracy
+    weighted_species_accuracy = venom_weighted_accuracy(
+        y_species_pred,
+        y_species_true,
+        enc2venom[y_species_pred],
+        y_venom_true
+    )
 
     print("=== Evaluation Metrics ===")
     print(f"1) Species accuracy: {species_accuracy:.4f}")
@@ -94,5 +106,4 @@ def get_scores(model, image_metadata, test_dataset, venom_threshold=0.5):
         "y_venom_true": y_venom_true,
         "y_venom_pred": y_venom_pred,
     }
-
 
