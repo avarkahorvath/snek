@@ -1,32 +1,29 @@
-# ---
-# jupyter:
-#   jupytext:
-#     text_representation:
-#       extension: .py
-#       format_name: percent
-#       format_version: '1.3'
-#       jupytext_version: 1.18.1
-#   kernelspec:
-#     display_name: Python 3
-#     name: python3
-# ---
+#!/usr/bin/env python
+# coding: utf-8
 
-# %% [markdown]
 # # Library imports, setup
 
-# %%
-# %load_ext autoreload
-# %autoreload 2
+# In[1]:
 
-# %%
+
+get_ipython().run_line_magic('load_ext', 'autoreload')
+get_ipython().run_line_magic('autoreload', '2')
+
+
+# In[2]:
+
+
 from data import load_metadata, visualize_data, make_dataset
-from model import build_cnn
+from model import build_multitask_model
 from score_metrics import get_scores
+from loss import SoftF1Loss
 
-# %% colab={"base_uri": "https://localhost:8080/"} executionInfo={"elapsed": 7956, "status": "ok", "timestamp": 1760103668680, "user": {"displayName": "Avarka", "userId": "01376155912533068519"}, "user_tz": -120} id="cb7d91df" outputId="632fa06d-510c-411c-bd31-1a43c8eb8343"
+
+# In[ ]:
+
+
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-
 import tensorflow as tf
 import numpy as np
 import pandas as pd
@@ -41,72 +38,186 @@ for device in gpus:
     print(f"Found GPU {device.name}, and set memory growth to True.")
 
 
-# %% [markdown]
 # # Loading data
 
-# %%
+# In[ ]:
+
+
 image_metadata, species_metadata = load_metadata()
 num_classes = len(species_metadata)
 
-# %% [markdown]
+
 # # Visualizing data
 
-# %%
+# In[ ]:
+
+
 #in data.py
 visualize_data(image_metadata)
 
-# %% [markdown] id="d98e31d7"
+
 # Loading python images from folder
 
-# %% [markdown]
 # # Building model
 
-# %%
-IMAGE_RESOLUTION=28
+# In[ ]:
 
-train_dataset, val_dataset, test_dataset = make_dataset(image_metadata, IMAGE_RESOLUTION)
 
-# %%
-model=build_cnn(num_classes, IMAGE_RESOLUTION)
-model.summary()
+import tensorflow as tf
+import keras
 
-# %%
+
+# In[ ]:
+
+
+IMAGE_RESOLUTION=224
+from data import make_batches, split_dataset
+
+#szükség van külön a train infora is
+train_info, val_info, test_info = split_dataset(image_metadata)
+train_dataset = make_batches(train_info, IMAGE_RESOLUTION)
+val_dataset   = make_batches(val_info, IMAGE_RESOLUTION)
+test_dataset  = make_batches(test_info, IMAGE_RESOLUTION)
+
+
+#train_dataset, val_dataset, test_dataset = make_dataset(image_metadata, IMAGE_RESOLUTION)
+
+
+# In[ ]:
+
+
+model = build_multitask_model(num_species=num_classes, image_resolution=224)
+#model.summary()
+
+
+# In[ ]:
+
+
+lr = 1e-4
+
 model.compile(
-    optimizer='adam',
+    optimizer=tf.keras.optimizers.Adam(learning_rate=lr),
     
-    loss={'species': 'sparse_categorical_crossentropy',
-          'venom': 'binary_crossentropy'},
-
+    loss={'species': tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+          'venom': 'binary_crossentropy',},
+    loss_weights={"species": 1.0, "venom": 0.5},
     metrics={'species': 'accuracy',
              'venom': 'accuracy'}
     )
 
-# %%
-n_epochs = 10 
+
+# In[ ]:
+
+
+checkpoint_cb = keras.callbacks.ModelCheckpoint(
+    "best_model.keras",
+    monitor="val_loss",
+    save_best_only=True,
+    save_weights_only=False,
+    verbose=1,
+)
+
+early_stop_cb = keras.callbacks.EarlyStopping(
+    monitor="val_loss",
+    patience=6,           # 6 epoch javulás nélkül → megáll
+    restore_best_weights=True,
+    verbose=1,
+)
+
+reduce_lr_cb = keras.callbacks.ReduceLROnPlateau(
+    monitor="val_loss",
+    factor=0.3,
+    patience=3,
+    min_lr=1e-6,
+    verbose=1,
+)
+
+
+# In[ ]:
+
+
+from sklearn.utils.class_weight import compute_class_weight
+
+# species class_weight
+species_classes = np.unique(train_info["encoded_id"])
+species_cw = compute_class_weight(
+    class_weight="balanced",
+    classes=species_classes,
+    y=train_info["encoded_id"]
+)
+species_cw_dict = {int(c): w for c, w in zip(species_classes, species_cw)}
+
+# venom class_weight 
+venom_classes = np.unique(train_info["MIVS"]) 
+venom_cw = compute_class_weight(
+    class_weight="balanced",
+    classes=venom_classes,
+    y=train_info["MIVS"]
+)
+venom_cw_dict = {int(c): w for c, w in zip(venom_classes, venom_cw)}
+
+
+
+# In[ ]:
+
+
+num_species = len(species_cw_dict)
+
+
+# In[ ]:
+
+
+n_epochs = 10
 
 # checkpointing based on the validation loss
-model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint('model.keras', monitor='val_loss', save_best_only=True, save_weights_only=False, verbose=1)
+model_checkpoint_callback = keras.callbacks.ModelCheckpoint(
+    'best_weights.weights.h5',
+    monitor='val_loss',
+    save_best_only=True,
+    save_weights_only=True,
+    verbose=1
+)
 
-# model training
+
+early_stop = keras.callbacks.EarlyStopping(
+    monitor='val_loss',
+    patience=2,
+    restore_best_weights=True
+)
+
+#reduce loss rate
+reduce_lr = keras.callbacks.ReduceLROnPlateau(
+    monitor='val_loss',
+    factor=0.3,
+    patience=3,
+    min_lr=1e-6
+)
+
+
 model_history = model.fit(
-                            x= train_dataset,
-                            epochs= n_epochs,
-                            validation_data= val_dataset,
-                            callbacks=[model_checkpoint_callback])
+    train_dataset,
+    validation_data=val_dataset,
+    epochs=n_epochs,
+    callbacks=[checkpoint_cb, early_stop_cb, reduce_lr_cb],
+)
 
-model.load_weights('model.keras')  # load weights back
+model.load_weights( 'best_weights.weights.h5')  # load weights back
 
-# %%
+
+# In[ ]:
+
+
 test_history = model.evaluate(test_dataset)
 print("Test Loss: ", test_history[0])
 print("Test Accuracy: ", test_history[1])
 
-# %% [markdown]
+
 # # Example results
 
-# %%
+# In[ ]:
+
+
 import numpy as np
-import tensorflow as tf
 import matplotlib.pyplot as plt
 
 def example_results_from_dataset(model, ds, species_names, n_examples=5, venom_threshold=0.5):
@@ -114,8 +225,10 @@ def example_results_from_dataset(model, ds, species_names, n_examples=5, venom_t
     ds must yield: (image, {'species': int, 'venom': int})
     species_names: list where index == encoded_id
     """
+    ds = ds.unbatch().shuffle(1000)
     # unbatch to individual samples and take a few
-    samples = list(ds.unbatch().take(n_examples))
+    samples = list(ds.take(n_examples))
+    #samples = list(ds.unbatch().take(n_examples))
     imgs = [x[0] for x in samples]
     lbls = [x[1] for x in samples]
 
@@ -146,15 +259,20 @@ def example_results_from_dataset(model, ds, species_names, n_examples=5, venom_t
 
 
 
-# %%
+
+
+# In[ ]:
+
+
 example_results_from_dataset(model, test_dataset, species_metadata, n_examples=5)
 
 
-# %% [markdown]
 # # Calculating scoring metrics
 
-# %% [markdown]
 # Function to tell if the species is venomous or not, based on encoded_id
 
-# %%
+# In[ ]:
+
+
 get_scores(model, image_metadata, test_dataset, venom_threshold=0.5)
+

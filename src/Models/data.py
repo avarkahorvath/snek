@@ -4,20 +4,22 @@ import matplotlib.pyplot as plt
 from sklearn.preprocessing import LabelEncoder
 import tensorflow as tf
 from sklearn.model_selection import train_test_split
+
+from tensorflow.keras.applications.efficientnet import preprocess_input
 import numpy as np
 
 #loads the metadata (train_images_metadata.csv , venomous_status_metadata.csv)
-
 def load_metadata(
-    base_path: str  =  os.path.dirname(os.getcwd()),
-    species_csv_path: str = r"\Data\train_images_metadata.csv",
-    venom_csv_path: str = r"\Data\venomous_status_metadata.csv",
-    train_image_path: str = r"\Data\train_images_small"
+    base_path: str  = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)),
+    species_csv_path: str = os.path.join("Data", "train_images_metadata.csv"),
+    venom_csv_path: str = os.path.join("Data", "venomous_status_metadata.csv"),
+    train_image_path: str = os.path.join("Data", "train_images_small")
 ):
 
     #read the csv files
-    species_csv = pd.read_csv(base_path + species_csv_path, index_col=0)
-    venom_csv = pd.read_csv(base_path + venom_csv_path, index_col=0)
+    species_csv = pd.read_csv(os.path.join(base_path, species_csv_path), index_col=0)
+    venom_csv = pd.read_csv(os.path.join(base_path, venom_csv_path), index_col=0)
+
 
     #merging the 2 files, now every row from species contains a column with venomous status
     species_venom_merged_csv = species_csv.merge(venom_csv[["class_id", "MIVS"]], on="class_id", how="left")
@@ -29,7 +31,7 @@ def load_metadata(
 
     # Find all of the image_paths 
     image_metadata["image_path"] = image_metadata["image_path"].apply(
-        lambda img_path: os.path.join(base_path + train_image_path, img_path)
+        lambda img_path: os.path.join(base_path, train_image_path, img_path)
     )
 
     NUM_CLASSES = len(encoder.classes_)
@@ -89,24 +91,26 @@ def visualize_venom(image_metadata):
 
 
 #-----------------------------------------------
-def make_dataset(image_metadata, image_resolution=28):
+def make_dataset(image_metadata, image_resolution=224):
     train_info, val_info, test_info = split_dataset(image_metadata)
-    train_dataset = make_batches(train_info, image_resolution)
-    val_dataset   = make_batches(val_info, image_resolution)
-    test_dataset  = make_batches(test_info, image_resolution)
+
+    train_dataset = make_batches(train_info, image_resolution, shuffle=True)
+    val_dataset   = make_batches(val_info, image_resolution, shuffle=False)
+    test_dataset  = make_batches(test_info, image_resolution, shuffle=False)
 
     return train_dataset, val_dataset, test_dataset
+
 
 def load_img(path, image_resolution):
     img = tf.io.read_file(path)
 
     #expand_animations = False needed, otherwise gif format isnt proper
-    img = tf.image.decode_image(img, channels=3, expand_animations = False)  
-    img = tf.image.convert_image_dtype(img, tf.float32)
+    img = tf.image.decode_image(img, channels=3, expand_animations = False)
     img = tf.image.resize(img, [image_resolution, image_resolution])
-    #img = img / 255.0  # Normalize to [0, 1]  <-    img = tf.image.convert_image_dtype(img, tf.float32) ez elvileg már normalizál
-
+    img = preprocess_input(img) 
     return img
+
+
 
 def make_labels(image_metadata):
     # Labels are going to be either venomous, or non-venomous
@@ -114,7 +118,7 @@ def make_labels(image_metadata):
     venom_labels = image_metadata['MIVS']
     return species_labels, venom_labels
 
-def make_batches(info_df, image_resolution, batch_size=32, shuffle=False):
+def make_batches(info_df, image_resolution, batch_size=32, shuffle=True):
     AUTOTUNE = tf.data.AUTOTUNE
     image_paths  = info_df["image_path"].values
     sp     = info_df["encoded_id"].values.astype(np.int32)

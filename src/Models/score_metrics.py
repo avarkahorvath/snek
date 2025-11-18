@@ -13,9 +13,8 @@ def make_enc2venom(image_metadata):
     )
     return enc2venom
 
-def is_species_venomous(encoded_id: int) -> int:
+def is_species_venomous(encoded_id: int, enc2venom) -> int:
     return int(enc2venom[encoded_id])
-
 
 
 
