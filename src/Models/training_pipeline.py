@@ -6,6 +6,7 @@
 # In[1]:
 
 
+#if you change a file, you dont have to restart the kernel
 get_ipython().run_line_magic('load_ext', 'autoreload')
 get_ipython().run_line_magic('autoreload', '2')
 
@@ -16,10 +17,10 @@ get_ipython().run_line_magic('autoreload', '2')
 from data import load_metadata, visualize_data, make_dataset
 from model import build_multitask_model
 from score_metrics import get_scores
-from loss import SoftF1Loss
+from loss import SoftF1Loss #custom loss function, currently not used
 
 
-# In[ ]:
+# In[3]:
 
 
 import os
@@ -40,16 +41,16 @@ for device in gpus:
 
 # # Loading data
 
-# In[ ]:
+# In[4]:
 
 
 image_metadata, species_metadata = load_metadata()
-num_classes = len(species_metadata)
+NUM_SPECIES = len(species_metadata)
 
 
 # # Visualizing data
 
-# In[ ]:
+# In[5]:
 
 
 #in data.py
@@ -60,138 +61,153 @@ visualize_data(image_metadata)
 
 # # Building model
 
-# In[ ]:
+# In[6]:
 
 
 import tensorflow as tf
 import keras
 
 
-# In[ ]:
+# In[7]:
 
 
 IMAGE_RESOLUTION=224
 from data import make_batches, split_dataset
 
-#szükség van külön a train infora is
+#split dataset and make batches
 train_info, val_info, test_info = split_dataset(image_metadata)
 train_dataset = make_batches(train_info, IMAGE_RESOLUTION)
 val_dataset   = make_batches(val_info, IMAGE_RESOLUTION)
 test_dataset  = make_batches(test_info, IMAGE_RESOLUTION)
 
 
-#train_dataset, val_dataset, test_dataset = make_dataset(image_metadata, IMAGE_RESOLUTION)
+# In[8]:
 
 
-# In[ ]:
-
-
-model = build_multitask_model(num_species=num_classes, image_resolution=224)
+model = build_multitask_model(num_species=NUM_SPECIES, image_resolution=IMAGE_RESOLUTION)
+#print model summary optionally
 #model.summary()
 
 
-# In[ ]:
+# In[9]:
 
 
-lr = 1e-4
+#compile the model with appropriate losses and metrics for each output
+
+lr = 1e-4 #EfficientNetB0 recommends low learning rates
+
+#TODO experiment with different optimizers
+#TODO experiment with different losses
 
 model.compile(
     optimizer=tf.keras.optimizers.Adam(learning_rate=lr),
     
-    loss={'species': tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
-          'venom': 'binary_crossentropy',},
-    loss_weights={"species": 1.0, "venom": 0.5},
-    metrics={'species': 'accuracy',
-             'venom': 'accuracy'}
+    loss={
+        'species': tf.keras.losses.SparseCategoricalCrossentropy(),
+        'venom': 'binary_crossentropy'
+        },
+
+    #need to balance the losses because species classification is harder than venom classification
+    loss_weights={
+        'species': 1.0,
+        'venom': 0.5
+       },
+
+    #only for monitoring during training
+    metrics={
+         'species': 'accuracy',
+         'venom': 'accuracy'
+       }
     )
 
 
-# In[ ]:
+# In[10]:
 
 
+import keras.callbacks
+
+
+# In[11]:
+
+
+#Saves the model only when validation loss improves
 checkpoint_cb = keras.callbacks.ModelCheckpoint(
     "best_model.keras",
     monitor="val_loss",
     save_best_only=True,
     save_weights_only=False,
-    verbose=1,
+    verbose=1, #print messages when saving
 )
 
+#training stops if no improvement in validation loss
 early_stop_cb = keras.callbacks.EarlyStopping(
     monitor="val_loss",
-    patience=6,           # 6 epoch javulás nélkül → megáll
+    patience=6,
     restore_best_weights=True,
     verbose=1,
 )
 
+#reduce learning rate when loss has stopped improving
 reduce_lr_cb = keras.callbacks.ReduceLROnPlateau(
     monitor="val_loss",
-    factor=0.3,
+    factor=0.3, #multiply lr by this factor
     patience=3,
-    min_lr=1e-6,
+    min_lr=1e-6, #minimum lr
     verbose=1,
 )
 
 
-# In[ ]:
+# In[12]:
 
 
 from sklearn.utils.class_weight import compute_class_weight
 
-# species class_weight
+#SPECIES CLASS WEIGHTS
+# get the different species classes
 species_classes = np.unique(train_info["encoded_id"])
+
 species_cw = compute_class_weight(
-    class_weight="balanced",
+    class_weight="balanced", #rare classes have larger weights, common classes have smaller weights
     classes=species_classes,
     y=train_info["encoded_id"]
 )
+
+#build dictionary mapping class to weight
 species_cw_dict = {int(c): w for c, w in zip(species_classes, species_cw)}
 
-# venom class_weight 
+species_weight_vec = tf.constant(
+    [species_cw_dict[i] for i in range(len(species_cw_dict))],
+    dtype=tf.float32
+)
+
+#VENOM CLASS WEIGHTS
+#get the different venom classes
 venom_classes = np.unique(train_info["MIVS"]) 
+
 venom_cw = compute_class_weight(
     class_weight="balanced",
     classes=venom_classes,
     y=train_info["MIVS"]
 )
+#build dictionary mapping class to weight
 venom_cw_dict = {int(c): w for c, w in zip(venom_classes, venom_cw)}
 
 
-
 # In[ ]:
 
 
-num_species = len(species_cw_dict)
+n_epochs = 5
+
+class_weight = {
+    "species": species_cw_dict,
+    "venom": venom_cw_dict,
+}
+
+#TODO currently not using any class weights
+#we should experiment with using sample weights or class weights, or maybe Focal Loss
 
 
-# In[ ]:
-
-
-n_epochs = 10
-
-# checkpointing based on the validation loss
-model_checkpoint_callback = keras.callbacks.ModelCheckpoint(
-    'best_weights.weights.h5',
-    monitor='val_loss',
-    save_best_only=True,
-    save_weights_only=True,
-    verbose=1
-)
-
-
-early_stop = keras.callbacks.EarlyStopping(
-    monitor='val_loss',
-    patience=2,
-    restore_best_weights=True
-)
-
-#reduce loss rate
-reduce_lr = keras.callbacks.ReduceLROnPlateau(
-    monitor='val_loss',
-    factor=0.3,
-    patience=3,
-    min_lr=1e-6
-)
+# In[18]:
 
 
 model_history = model.fit(
@@ -201,45 +217,58 @@ model_history = model.fit(
     callbacks=[checkpoint_cb, early_stop_cb, reduce_lr_cb],
 )
 
-model.load_weights( 'best_weights.weights.h5')  # load weights back
+
+# In[19]:
 
 
-# In[ ]:
+model.load_weights('best_model.keras')  # load best weights back
 
 
-test_history = model.evaluate(test_dataset)
-print("Test Loss: ", test_history[0])
-print("Test Accuracy: ", test_history[1])
+# In[20]:
+
+
+results = model.evaluate(test_dataset, verbose=1)
+
+
+# In[25]:
+
+
+test_loss, species_loss, venom_loss, species_acc, venom_acc = results
+
+print(f"Test species acc: {species_acc*100:0.2f}%")
+print(f"Test venom acc: {venom_acc*100:0.2f}%")
 
 
 # # Example results
 
-# In[ ]:
+# In[26]:
 
 
 import numpy as np
 import matplotlib.pyplot as plt
+import tensorflow as tf
+from tensorflow.keras.applications.efficientnet import preprocess_input
 
 def example_results_from_dataset(model, ds, species_names, n_examples=5, venom_threshold=0.5):
     """
-    ds must yield: (image, {'species': int, 'venom': int})
-    species_names: list where index == encoded_id
+    ds must yield: (raw_image, {'species': int, 'venom': int})
     """
     ds = ds.unbatch().shuffle(1000)
-    # unbatch to individual samples and take a few
     samples = list(ds.take(n_examples))
-    #samples = list(ds.unbatch().take(n_examples))
-    imgs = [x[0] for x in samples]
+
+    imgs = [x[0] for x in samples]   # RAW képek (0–255)
     lbls = [x[1] for x in samples]
 
-    # stack to a batch for one predict()
-    x_batch = tf.stack(imgs, axis=0)
-    pred_species_logits, pred_venom_prob = model.predict(x_batch, verbose=0)
+    # 🔹 Modellnek: preprocess_input kell a RAW képekre
+    x_raw = tf.stack([tf.cast(img, tf.float32) for img in imgs], axis=0)
+    x_for_model = preprocess_input(x_raw)
+
+    pred_species_logits, pred_venom_prob = model.predict(x_for_model, verbose=0)
 
     plt.figure(figsize=(3.3 * len(imgs), 3.3))
-    for i, (img, y) in enumerate(zip(imgs, lbls), start=1):
-        true_species = int(y["species"].numpy())
-        true_venom   = int(y["venom"].numpy())
+    for i, (img, lbl) in enumerate(zip(imgs, lbls), start=1):
+        true_species = int(lbl["species"].numpy())
+        true_venom   = int(lbl["venom"].numpy())
 
         pred_species = int(np.argmax(pred_species_logits[i-1]))
         pred_venom   = bool(float(pred_venom_prob[i-1][0]) > venom_threshold)
@@ -248,20 +277,23 @@ def example_results_from_dataset(model, ds, species_names, n_examples=5, venom_t
         pred_name = species_names[pred_species] if 0 <= pred_species < len(species_names) else str(pred_species)
 
         plt.subplot(1, len(imgs), i)
-        plt.imshow(img.numpy())
+
+        img_np = np.clip(img.numpy(), 0, 255).astype(np.uint8)
+
+        plt.imshow(img_np)
         plt.axis("off")
+
         plt.title(
             f"True: {true_name} ({'Venom' if true_venom else 'Safe'})\n"
             f"Pred: {pred_name} ({'Venom' if pred_venom else 'Safe'})",
             fontsize=9
         )
-    plt.tight_layout(); plt.show()
+
+    plt.tight_layout()
+    plt.show()
 
 
-
-
-
-# In[ ]:
+# In[30]:
 
 
 example_results_from_dataset(model, test_dataset, species_metadata, n_examples=5)
@@ -271,8 +303,76 @@ example_results_from_dataset(model, test_dataset, species_metadata, n_examples=5
 
 # Function to tell if the species is venomous or not, based on encoded_id
 
+# In[37]:
+
+
+results_own_metrics= get_scores(model, image_metadata, test_dataset, venom_threshold=0.5)
+
+
+# # Plotting mistakes
+
+# In[38]:
+
+
+from sklearn.metrics import classification_report
+import matplotlib.pyplot as plt
+import numpy as np
+
+def plot_per_class_recall_f1(results):
+    y_true = results["y_species_true"]
+    y_pred = results["y_species_pred"]
+
+    report = classification_report(y_true, y_pred, output_dict=True)
+    class_ids = sorted([int(c) for c in report.keys() if c.isdigit()])
+
+    recalls = [report[str(c)]["recall"] for c in class_ids]
+    f1s     = [report[str(c)]["f1-score"] for c in class_ids]
+
+    plt.figure(figsize=(20,6))
+    plt.bar(class_ids, recalls)
+    plt.title("Per-Class Recall")
+    plt.xlabel("Class ID")
+    plt.ylabel("Recall")
+    plt.show()
+
+    plt.figure(figsize=(20,6))
+    plt.bar(class_ids, f1s)
+    plt.title("Per-Class F1-Score")
+    plt.xlabel("Class ID")
+    plt.ylabel("F1")
+    plt.show()
+
+
 # In[ ]:
 
 
-get_scores(model, image_metadata, test_dataset, venom_threshold=0.5)
+from sklearn.metrics import confusion_matrix
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+def plot_confusion_matrix(results):
+    y_true = results["y_species_true"]
+    y_pred = results["y_species_pred"]
+
+    from sklearn.metrics import confusion_matrix
+import seaborn as sns
+
+cm = confusion_matrix(y_true, y_pred, normalize='true')
+
+plt.figure(figsize=(10, 10))
+sns.heatmap(cm, cmap='Blues')
+plt.title("Normalized Confusion Matrix")
+plt.show()
+
+
+# In[40]:
+
+
+plot_per_class_recall_f1(results_own_metrics)
+
+
+# In[41]:
+
+
+plot_confusion_matrix(results_own_metrics)
 
