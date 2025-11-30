@@ -56,10 +56,25 @@ def get_scores(model, image_metadata, test_dataset, venom_threshold=0.5):
     enc2venom = make_enc2venom(image_metadata)
 
     # EGYETLEN bejárás: itt kérjük le a labelt és a predikciót is
-    for images, labels in test_dataset:
-        # true labels
-        y_species_true_batches.append(labels["species"].numpy())
-        y_venom_true_batches.append(labels["venom"].numpy())
+    for batch in test_dataset:
+        # batch lehet (images, labels) VAGY (images, labels, sample_weight)
+        if len(batch) == 2:
+            images, labels = batch
+        else:
+            images, labels, *_ = batch
+
+        # labels lehet dict {"species":..., "venom":...} VAGY (species, venom) tuple
+        if isinstance(labels, dict):
+            y_species_true = labels["species"].numpy()
+            y_venom_true   = labels["venom"].numpy()
+        else:
+            # feltételezzük: labels = (species_batch, venom_batch)
+            species_batch, venom_batch = labels
+            y_species_true = species_batch.numpy()
+            y_venom_true   = venom_batch.numpy()
+
+        y_species_true_batches.append(y_species_true)
+        y_venom_true_batches.append(y_venom_true)
 
         # model prediction batchre
         species_probs_batch, venom_probs_batch = model.predict_on_batch(images)

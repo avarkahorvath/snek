@@ -90,24 +90,40 @@ species_weight_vec = tf.constant(
     [species_cw_dict[i] for i in range(len(species_cw_dict))],
     dtype=tf.float32,
 )
+venom_classes = np.unique(train_info["MIVS"])   
+venom_cw = compute_class_weight(
+    class_weight="balanced",
+    classes=venom_classes,
+    y=train_info["MIVS"],
+)
+
+venom_cw_dict = {int(c): w for c, w in zip(venom_classes, venom_cw)}
+
+venom_weight_vec = tf.constant(
+    [venom_cw_dict[i] for i in range(len(venom_cw_dict))],
+    dtype=tf.float32,
+)
 
 #split dataset and make batches
 train_dataset = make_batches(
     train_info,
     IMAGE_RESOLUTION,
     species_weight_vec=species_weight_vec,
+    venom_weight_vec=venom_weight_vec,
 )
 
 val_dataset = make_batches(
     val_info,
     IMAGE_RESOLUTION,
     species_weight_vec=None,
+    venom_weight_vec=None,
 )
 
 test_dataset = make_batches(
     test_info,
     IMAGE_RESOLUTION,
     species_weight_vec=None,
+    venom_weight_vec=None,
 )
 
 
@@ -241,17 +257,27 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 from tensorflow.keras.applications.efficientnet import preprocess_input
 
+import numpy as np
+import matplotlib.pyplot as plt
+import tensorflow as tf
+from tensorflow.keras.applications.efficientnet import preprocess_input
+
 def example_results_from_dataset(model, ds, species_names, n_examples=5, venom_threshold=0.5):
     """
-    ds must yield: (raw_image, {'species': int, 'venom': int})
+    Jelenlegi pipeline:
+    ds yield: (img, (species, venom), (species_w, venom_w))
     """
-    ds = ds.unbatch().shuffle(1000)
-    samples = list(ds.take(n_examples))
+
+    # csak (img, labels) kell, súlyokat eldobjuk
+    ds_vis = ds.map(lambda img, labels, *rest: (img, labels))
+
+    ds_vis = ds_vis.unbatch().shuffle(1000)
+    samples = list(ds_vis.take(n_examples))
 
     imgs = [x[0] for x in samples]   # RAW képek (0–255)
     lbls = [x[1] for x in samples]
 
-    # 🔹 Modellnek: preprocess_input kell a RAW képekre
+    # Modell bemenet előkészítése
     x_raw = tf.stack([tf.cast(img, tf.float32) for img in imgs], axis=0)
     x_for_model = preprocess_input(x_raw)
 
@@ -259,8 +285,10 @@ def example_results_from_dataset(model, ds, species_names, n_examples=5, venom_t
 
     plt.figure(figsize=(3.3 * len(imgs), 3.3))
     for i, (img, lbl) in enumerate(zip(imgs, lbls), start=1):
-        true_species = int(lbl["species"].numpy())
-        true_venom   = int(lbl["venom"].numpy())
+        # lbl: (species, venom)
+        species_lbl, venom_lbl = lbl
+        true_species = int(species_lbl.numpy())
+        true_venom   = int(venom_lbl.numpy())
 
         pred_species = int(np.argmax(pred_species_logits[i-1]))
         pred_venom   = bool(float(pred_venom_prob[i-1][0]) > venom_threshold)
@@ -271,7 +299,6 @@ def example_results_from_dataset(model, ds, species_names, n_examples=5, venom_t
         plt.subplot(1, len(imgs), i)
 
         img_np = np.clip(img.numpy(), 0, 255).astype(np.uint8)
-
         plt.imshow(img_np)
         plt.axis("off")
 

@@ -136,7 +136,6 @@ def make_batches(info_df, image_resolution,species_weight_vec=None,venom_weight_
         if species_weight_vec is not None:
             species_w = tf.gather(species_weight_vec, species)
         else:
-
             species_w = tf.ones_like(tf.cast(species, tf.float32))
 
 
@@ -144,6 +143,7 @@ def make_batches(info_df, image_resolution,species_weight_vec=None,venom_weight_
             venom_w = tf.gather(venom_weight_vec, venom)
         else:
             venom_w = tf.ones_like(tf.cast(venom, tf.float32))
+
 
         sample_weight = (species_w, venom_w)
 
