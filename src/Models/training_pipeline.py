@@ -132,22 +132,17 @@ lr = 1e-4 #EfficientNetB0 recommends low learning rates
 model.compile(
     optimizer=tf.keras.optimizers.Adam(learning_rate=lr),
     
-    loss={
-        'species': tf.keras.losses.SparseCategoricalCrossentropy(),
-        'venom': 'binary_crossentropy'
-        },
+    loss=[
+        tf.keras.losses.SparseCategoricalCrossentropy(),
+        'binary_crossentropy'
+    ],
 
     #need to balance the losses because species classification is harder than venom classification
-    loss_weights={
-        'species': 1.0,
-        'venom': 0.5
-       },
+    loss_weights=[1.0, 0.5],
+
 
     #only for monitoring during training
-    metrics={
-         'species': 'accuracy',
-         'venom': 'accuracy'
-       }
+    metrics=['accuracy', 'accuracy'],
     )
 
 
@@ -197,7 +192,7 @@ n_epochs = 5
 
 class_weight = {
     "species": species_cw_dict,
-    "venom": venom_cw_dict,
+    #"venom": venom_cw_dict,
 }
 
 #TODO currently not using any class weights

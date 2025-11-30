@@ -115,7 +115,7 @@ def make_labels(image_metadata):
     venom_labels = image_metadata['MIVS'] # VENOM Labels are going to be: venomous or non-venomous
     return species_labels, venom_labels
 
-def make_batches(info_df, image_resolution,species_weight_vec=None, batch_size=32, shuffle=True):
+def make_batches(info_df, image_resolution,species_weight_vec=None,venom_weight_vec=None, batch_size=32, shuffle=True):
     AUTOTUNE = tf.data.AUTOTUNE
 
     image_paths  = info_df["image_path"].values #image paths
@@ -132,7 +132,7 @@ def make_batches(info_df, image_resolution,species_weight_vec=None, batch_size=3
     #helper, this loads the image from  the given path and returns image and labels
     def _load(path, species, venom):
         img = load_img(path, image_resolution)
-        labels = {"species": species, "venom": venom}
+        labels = (species, venom)
         if species_weight_vec is not None:
             species_w = tf.gather(species_weight_vec, species)
         else:
@@ -140,15 +140,15 @@ def make_batches(info_df, image_resolution,species_weight_vec=None, batch_size=3
             species_w = tf.ones_like(tf.cast(species, tf.float32))
 
 
-        venom_w = tf.ones_like(tf.cast(venom, tf.float32))
+        if venom_weight_vec is not None:
+            venom_w = tf.gather(venom_weight_vec, venom)
+        else:
+            venom_w = tf.ones_like(tf.cast(venom, tf.float32))
 
-        sample_weight = {
-            "species": species_w,
-            "venom": venom_w,
-        }
+        sample_weight = (species_w, venom_w)
 
-        #return img, labels, sample_weight
-        return img, labels
+        return img, labels, sample_weight
+        #return img, labels
 
     ds = ds.map(_load, num_parallel_calls=AUTOTUNE)
 
