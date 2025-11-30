@@ -158,6 +158,7 @@ env.bak/
 venv.bak/
 src/Data/test_images_small
 src/Data/train_images_small
+src/Data/train_images_large
 
 # Spyder project settings
 .spyderproject

@@ -91,12 +91,12 @@ def visualize_venom(image_metadata):
 
 
 # LOADING DATASET---------------------------------------------
-def make_dataset(image_metadata, image_resolution=224):
+def make_dataset(image_metadata, image_resolution=224, species_weight_vec=None):
     train_info, val_info, test_info = split_dataset(image_metadata)
 
-    train_dataset = make_batches(train_info, image_resolution, shuffle=True)
-    val_dataset   = make_batches(val_info, image_resolution, shuffle=False)
-    test_dataset  = make_batches(test_info, image_resolution, shuffle=False)
+    train_dataset = make_batches(train_info, image_resolution, species_weight_vec=species_weight_vec, shuffle=True)
+    val_dataset   = make_batches(val_info, image_resolution, species_weight_vec=None, shuffle=False)
+    test_dataset  = make_batches(test_info, image_resolution, species_weight_vec=None, shuffle=False)
 
     return train_dataset, val_dataset, test_dataset
 
@@ -115,7 +115,7 @@ def make_labels(image_metadata):
     venom_labels = image_metadata['MIVS'] # VENOM Labels are going to be: venomous or non-venomous
     return species_labels, venom_labels
 
-def make_batches(info_df, image_resolution, batch_size=32, shuffle=True):
+def make_batches(info_df, image_resolution,species_weight_vec=None, batch_size=32, shuffle=True):
     AUTOTUNE = tf.data.AUTOTUNE
 
     image_paths  = info_df["image_path"].values #image paths
@@ -133,6 +133,21 @@ def make_batches(info_df, image_resolution, batch_size=32, shuffle=True):
     def _load(path, species, venom):
         img = load_img(path, image_resolution)
         labels = {"species": species, "venom": venom}
+        if species_weight_vec is not None:
+            species_w = tf.gather(species_weight_vec, species)
+        else:
+
+            species_w = tf.ones_like(tf.cast(species, tf.float32))
+
+
+        venom_w = tf.ones_like(tf.cast(venom, tf.float32))
+
+        sample_weight = {
+            "species": species_w,
+            "venom": venom_w,
+        }
+
+        #return img, labels, sample_weight
         return img, labels
 
     ds = ds.map(_load, num_parallel_calls=AUTOTUNE)

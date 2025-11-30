@@ -70,15 +70,45 @@ import keras
 
 # In[7]:
 
+from sklearn.utils.class_weight import compute_class_weight
 
 IMAGE_RESOLUTION=224
 from data import make_batches, split_dataset
 
-#split dataset and make batches
 train_info, val_info, test_info = split_dataset(image_metadata)
-train_dataset = make_batches(train_info, IMAGE_RESOLUTION)
-val_dataset   = make_batches(val_info, IMAGE_RESOLUTION)
-test_dataset  = make_batches(test_info, IMAGE_RESOLUTION)
+
+species_classes = np.unique(train_info["encoded_id"])
+species_cw = compute_class_weight(
+    class_weight="balanced",
+    classes=species_classes,
+    y=train_info["encoded_id"],
+)
+
+species_cw_dict = {int(c): w for c, w in zip(species_classes, species_cw)}
+
+species_weight_vec = tf.constant(
+    [species_cw_dict[i] for i in range(len(species_cw_dict))],
+    dtype=tf.float32,
+)
+
+#split dataset and make batches
+train_dataset = make_batches(
+    train_info,
+    IMAGE_RESOLUTION,
+    species_weight_vec=species_weight_vec,
+)
+
+val_dataset = make_batches(
+    val_info,
+    IMAGE_RESOLUTION,
+    species_weight_vec=None,
+)
+
+test_dataset = make_batches(
+    test_info,
+    IMAGE_RESOLUTION,
+    species_weight_vec=None,
+)
 
 
 # In[8]:
@@ -158,39 +188,6 @@ reduce_lr_cb = keras.callbacks.ReduceLROnPlateau(
 
 
 # In[12]:
-
-
-from sklearn.utils.class_weight import compute_class_weight
-
-#SPECIES CLASS WEIGHTS
-# get the different species classes
-species_classes = np.unique(train_info["encoded_id"])
-
-species_cw = compute_class_weight(
-    class_weight="balanced", #rare classes have larger weights, common classes have smaller weights
-    classes=species_classes,
-    y=train_info["encoded_id"]
-)
-
-#build dictionary mapping class to weight
-species_cw_dict = {int(c): w for c, w in zip(species_classes, species_cw)}
-
-species_weight_vec = tf.constant(
-    [species_cw_dict[i] for i in range(len(species_cw_dict))],
-    dtype=tf.float32
-)
-
-#VENOM CLASS WEIGHTS
-#get the different venom classes
-venom_classes = np.unique(train_info["MIVS"]) 
-
-venom_cw = compute_class_weight(
-    class_weight="balanced",
-    classes=venom_classes,
-    y=train_info["MIVS"]
-)
-#build dictionary mapping class to weight
-venom_cw_dict = {int(c): w for c, w in zip(venom_classes, venom_cw)}
 
 
 # In[ ]:
