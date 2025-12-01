@@ -13,7 +13,7 @@ def load_metadata(
     base_path: str  = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)),
     species_csv_path: str = os.path.join("Data", "train_images_metadata.csv"),
     venom_csv_path: str = os.path.join("Data", "venomous_status_metadata.csv"),
-    train_image_path: str = os.path.join("Data", "train_images_small")
+    train_image_path: str = os.path.join("Data", "train_images_large")
 ):
     #read the csv files
     species_csv = pd.read_csv(os.path.join(base_path, species_csv_path), index_col=0)
@@ -115,7 +115,7 @@ def make_labels(image_metadata):
     venom_labels = image_metadata['MIVS'] # VENOM Labels are going to be: venomous or non-venomous
     return species_labels, venom_labels
 
-def make_batches(info_df, image_resolution,species_weight_vec=None,venom_weight_vec=None, batch_size=32, shuffle=True):
+def make_batches(info_df, image_resolution,species_weight_vec=None, batch_size=32, shuffle=True):
     AUTOTUNE = tf.data.AUTOTUNE
 
     image_paths  = info_df["image_path"].values #image paths
@@ -139,10 +139,7 @@ def make_batches(info_df, image_resolution,species_weight_vec=None,venom_weight_
             species_w = tf.ones_like(tf.cast(species, tf.float32))
 
 
-        if venom_weight_vec is not None:
-            venom_w = tf.gather(venom_weight_vec, venom)
-        else:
-            venom_w = tf.ones_like(tf.cast(venom, tf.float32))
+        venom_w = tf.ones_like(tf.cast(venom, tf.float32))
 
 
         sample_weight = (species_w, venom_w)

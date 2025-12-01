@@ -90,40 +90,25 @@ species_weight_vec = tf.constant(
     [species_cw_dict[i] for i in range(len(species_cw_dict))],
     dtype=tf.float32,
 )
-venom_classes = np.unique(train_info["MIVS"])   
-venom_cw = compute_class_weight(
-    class_weight="balanced",
-    classes=venom_classes,
-    y=train_info["MIVS"],
-)
 
-venom_cw_dict = {int(c): w for c, w in zip(venom_classes, venom_cw)}
-
-venom_weight_vec = tf.constant(
-    [venom_cw_dict[i] for i in range(len(venom_cw_dict))],
-    dtype=tf.float32,
-)
 
 #split dataset and make batches
 train_dataset = make_batches(
     train_info,
     IMAGE_RESOLUTION,
     species_weight_vec=species_weight_vec,
-    venom_weight_vec=venom_weight_vec,
 )
 
 val_dataset = make_batches(
     val_info,
     IMAGE_RESOLUTION,
     species_weight_vec=None,
-    venom_weight_vec=None,
 )
 
 test_dataset = make_batches(
     test_info,
     IMAGE_RESOLUTION,
     species_weight_vec=None,
-    venom_weight_vec=None,
 )
 
 
