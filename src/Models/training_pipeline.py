@@ -70,161 +70,160 @@ import keras
 
 # In[7]:
 
-from sklearn.utils.class_weight import compute_class_weight
+from model import build_multitask_model
+from score_metrics import get_scores
+from loss import SoftF1Loss 
 
-IMAGE_RESOLUTION=224
+from sklearn.model_selection import StratifiedKFold
+from sklearn.utils.class_weight import compute_class_weight
+IMAGE_RESOLUTION=544
+NUM_FOLDS = 3
+
+
 from data import make_batches, split_dataset
 
-train_info, val_info = split_dataset(image_metadata)
 
-species_classes = np.unique(train_info["encoded_id"])
-species_cw = compute_class_weight(
-    class_weight="balanced",
-    classes=species_classes,
-    y=train_info["encoded_id"],
+
+X_paths = image_metadata["image_path"].values
+y_species = image_metadata["encoded_id"].values
+
+skf = StratifiedKFold(
+    n_splits=NUM_FOLDS,
+    shuffle=True,
+    random_state=42,
 )
 
-species_cw_dict = {int(c): w for c, w in zip(species_classes, species_cw)}
-
-species_weight_vec = tf.constant(
-    [species_cw_dict[i] for i in range(len(species_cw_dict))],
-    dtype=tf.float32,
-)
+fold_metrics = []
 
 
-#split dataset and make batches
-train_dataset = make_batches(
-    train_info,
-    IMAGE_RESOLUTION,
-    species_weight_vec=species_weight_vec,
-)
+all_y_species_true = []
+all_y_species_pred = []
+all_y_venom_true = []
+all_y_venom_pred = []
 
-val_dataset = make_batches(
-    val_info,
-    IMAGE_RESOLUTION,
-    species_weight_vec=None,
-)
+for fold_idx, (train_idx, val_idx) in enumerate(skf.split(X_paths, y_species), start=1):
+    print(f"\n===== FOLD {fold_idx}/{NUM_FOLDS} =====")
 
+    train_info = image_metadata.iloc[train_idx].copy()
+    val_info   = image_metadata.iloc[val_idx].copy()
 
+    # --- class weight csak a trainre számolva ---
+    species_classes = np.unique(train_info["encoded_id"])
+    species_cw = compute_class_weight(
+        class_weight="balanced",
+        classes=species_classes,
+        y=train_info["encoded_id"],
+    )
+    species_cw_dict = {int(c): w for c, w in zip(species_classes, species_cw)}
 
-# In[8]:
-
-
-model = build_multitask_model(num_species=NUM_SPECIES, image_resolution=IMAGE_RESOLUTION)
-#print model summary optionally
-#model.summary()
-
-
-# In[9]:
-
-
-#compile the model with appropriate losses and metrics for each output
-
-lr = 1e-4 #EfficientNetB0 recommends low learning rates
-
-#TODO experiment with different optimizers
-#TODO experiment with different losses
-
-model.compile(
-    optimizer=tf.keras.optimizers.Adam(learning_rate=lr),
-    
-    loss=[
-        tf.keras.losses.SparseCategoricalCrossentropy(),
-        'binary_crossentropy'
-    ],
-
-    #need to balance the losses because species classification is harder than venom classification
-    loss_weights=[1.0, 0.5],
-
-
-    #only for monitoring during training
-    metrics=['accuracy', 'accuracy'],
+    species_weight_vec = tf.constant(
+        [species_cw_dict[i] for i in range(len(species_cw_dict))],
+        dtype=tf.float32,
     )
 
+    # --- tf.data datasetek ---
+    train_dataset = make_batches(
+        train_info,
+        IMAGE_RESOLUTION,
+        species_weight_vec=species_weight_vec,
+    )
 
-# In[10]:
+    val_dataset = make_batches(
+        val_info,
+        IMAGE_RESOLUTION,
+        species_weight_vec=None,
+    )
 
+    # --- modell: minden foldban újraépítjük ---
+    model = build_multitask_model(
+        num_species=NUM_SPECIES,
+        image_resolution=IMAGE_RESOLUTION,
+    )
 
-import keras.callbacks
+    lr = 1e-4  # EfficientNetB0-hoz alacsony LR
 
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(learning_rate=lr),
+        loss=[
+            tf.keras.losses.SparseCategoricalCrossentropy(),
+            "binary_crossentropy",
+        ],
+        loss_weights=[1.0, 0.5],
+        metrics=["accuracy", "accuracy"],
+    )
 
-# In[11]:
+    # --- callbackek fold-specifikus checkpointtal ---
+    checkpoint_cb = keras.callbacks.ModelCheckpoint(
+        f"best_model_fold{fold_idx}.keras",
+        monitor="val_loss",
+        save_best_only=True,
+        save_weights_only=False,
+        verbose=1,
+    )
 
+    early_stop_cb = keras.callbacks.EarlyStopping(
+        monitor="val_loss",
+        patience=6,
+        restore_best_weights=True,
+        verbose=1,
+    )
 
-#Saves the model only when validation loss improves
-checkpoint_cb = keras.callbacks.ModelCheckpoint(
-    "best_model.keras",
-    monitor="val_loss",
-    save_best_only=True,
-    save_weights_only=False,
-    verbose=1, #print messages when saving
-)
+    reduce_lr_cb = keras.callbacks.ReduceLROnPlateau(
+        monitor="val_loss",
+        factor=0.3,
+        patience=3,
+        min_lr=1e-6,
+        verbose=1,
+    )
 
-#training stops if no improvement in validation loss
-early_stop_cb = keras.callbacks.EarlyStopping(
-    monitor="val_loss",
-    patience=6,
-    restore_best_weights=True,
-    verbose=1,
-)
+    n_epochs = 5
 
-#reduce learning rate when loss has stopped improving
-reduce_lr_cb = keras.callbacks.ReduceLROnPlateau(
-    monitor="val_loss",
-    factor=0.3, #multiply lr by this factor
-    patience=3,
-    min_lr=1e-6, #minimum lr
-    verbose=1,
-)
+    history = model.fit(
+        train_dataset,
+        validation_data=val_dataset,
+        epochs=n_epochs,
+        callbacks=[checkpoint_cb, early_stop_cb, reduce_lr_cb],
+    )
 
+    # --- saját metrikák foldonként, get_scores-szal ---
+    metrics_fold = get_scores(
+        model,
+        image_metadata=image_metadata,
+        test_dataset=val_dataset,
+        venom_threshold=0.5,
+    )
 
-# In[12]:
+    fold_metrics.append(metrics_fold)
 
+    all_y_species_true.append(metrics_fold["y_species_true"])
+    all_y_species_pred.append(metrics_fold["y_species_pred"])
+    all_y_venom_true.append(metrics_fold["y_venom_true"])
+    all_y_venom_pred.append(metrics_fold["y_venom_pred"])
 
-# In[ ]:
-
-
-n_epochs = 5
-
-class_weight = {
-    "species": species_cw_dict,
-    #"venom": venom_cw_dict,
+# --- aggregált CV-eredmények (átlag metrikák + összesített predikciók) ---
+results_own_metrics = {
+    "species_accuracy": np.mean([m["species_accuracy"] for m in fold_metrics]),
+    "macro_f1": np.mean([m["macro_f1"] for m in fold_metrics]),
+    "venom_accuracy": np.mean([m["venom_accuracy"] for m in fold_metrics]),
+    "venom_weighted_species_accuracy": np.mean(
+        [m["venom_weighted_species_accuracy"] for m in fold_metrics]
+    ),
+    "y_species_true": np.concatenate(all_y_species_true, axis=0),
+    "y_species_pred": np.concatenate(all_y_species_pred, axis=0),
+    "y_venom_true": np.concatenate(all_y_venom_true, axis=0),
+    "y_venom_pred": np.concatenate(all_y_venom_pred, axis=0),
 }
 
-#TODO currently not using any class weights
-#we should experiment with using sample weights or class weights, or maybe Focal Loss
-
-
-# In[18]:
-
-
-model_history = model.fit(
-    train_dataset,
-    validation_data=val_dataset,
-    epochs=n_epochs,
-    callbacks=[checkpoint_cb, early_stop_cb, reduce_lr_cb],
+print("\n=== Átlagolt keresztvalidációs eredmények ===")
+print(f"Species accuracy (val): {results_own_metrics['species_accuracy']:.4f}")
+print(f"Macro-F1 (species, val): {results_own_metrics['macro_f1']:.4f}")
+print(f"Venom accuracy (val): {results_own_metrics['venom_accuracy']:.4f}")
+print(
+    "Venom-weighted species accuracy (val): "
+    f"{results_own_metrics['venom_weighted_species_accuracy']:.4f}"
 )
 
 
-# In[19]:
-
-
-model.load_weights('best_model.keras')  # load best weights back
-
-
-# In[20]:
-
-
-results = model.evaluate(val_dataset, verbose=1)
-
-
-# In[25]:
-
-
-test_loss, species_loss, venom_loss, species_acc, venom_acc = results
-
-print(f"Test species acc: {species_acc*100:0.2f}%")
-print(f"Test venom acc: {venom_acc*100:0.2f}%")
 
 
 # # Example results
@@ -305,7 +304,6 @@ example_results_from_dataset(model, val_dataset, species_metadata, n_examples=5)
 # In[37]:
 
 
-results_own_metrics= get_scores(model, image_metadata, val_dataset, venom_threshold=0.5)
 
 
 # # Plotting mistakes
@@ -353,15 +351,13 @@ def plot_confusion_matrix(results):
     y_true = results["y_species_true"]
     y_pred = results["y_species_pred"]
 
-    from sklearn.metrics import confusion_matrix
-import seaborn as sns
+    cm = confusion_matrix(y_true, y_pred, normalize='true')
 
-cm = confusion_matrix(y_true, y_pred, normalize='true')
+    plt.figure(figsize=(10, 10))
+    sns.heatmap(cm, cmap='Blues')
+    plt.title("Normalized Confusion Matrix")
+    plt.show()
 
-plt.figure(figsize=(10, 10))
-sns.heatmap(cm, cmap='Blues')
-plt.title("Normalized Confusion Matrix")
-plt.show()
 
 
 # In[40]:
