@@ -92,13 +92,12 @@ def visualize_venom(image_metadata):
 
 # LOADING DATASET---------------------------------------------
 def make_dataset(image_metadata, image_resolution=224, species_weight_vec=None):
-    train_info, val_info, test_info = split_dataset(image_metadata)
+    train_info, val_info = split_dataset(image_metadata)
 
     train_dataset = make_batches(train_info, image_resolution, species_weight_vec=species_weight_vec, shuffle=True)
     val_dataset   = make_batches(val_info, image_resolution, species_weight_vec=None, shuffle=False)
-    test_dataset  = make_batches(test_info, image_resolution, species_weight_vec=None, shuffle=False)
 
-    return train_dataset, val_dataset, test_dataset
+    return train_dataset, val_dataset
 
 #unpreprocessed image loading
 def load_img(path, image_resolution):
@@ -154,16 +153,10 @@ def make_batches(info_df, image_resolution,species_weight_vec=None, batch_size=3
     return ds
 
 def split_dataset(image_metadata):
-    train_info = image_metadata.copy()
-    #1. split train: 80% train, 20% validation
-    train_info, temp_info = train_test_split(
-        #stratify: every species appears proportionally
-        image_metadata, test_size=0.2, random_state=42, stratify=image_metadata["encoded_id"]
+    train_info, val_info = train_test_split(
+        image_metadata,
+        test_size=0.2,
+        random_state= 42,
+        stratify=image_metadata["encoded_id"],
     )
-
-    # 2: split validation: 10% validation, 10% test
-    val_info, test_info = train_test_split(
-         #stratify: every species appears proportionally
-        temp_info, test_size=0.5, random_state=42, stratify=temp_info["encoded_id"]
-    )
-    return train_info, val_info, test_info
+    return train_info, val_info

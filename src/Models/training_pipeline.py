@@ -75,7 +75,7 @@ from sklearn.utils.class_weight import compute_class_weight
 IMAGE_RESOLUTION=224
 from data import make_batches, split_dataset
 
-train_info, val_info, test_info = split_dataset(image_metadata)
+train_info, val_info = split_dataset(image_metadata)
 
 species_classes = np.unique(train_info["encoded_id"])
 species_cw = compute_class_weight(
@@ -105,11 +105,6 @@ val_dataset = make_batches(
     species_weight_vec=None,
 )
 
-test_dataset = make_batches(
-    test_info,
-    IMAGE_RESOLUTION,
-    species_weight_vec=None,
-)
 
 
 # In[8]:
@@ -220,7 +215,7 @@ model.load_weights('best_model.keras')  # load best weights back
 # In[20]:
 
 
-results = model.evaluate(test_dataset, verbose=1)
+results = model.evaluate(val_dataset, verbose=1)
 
 
 # In[25]:
@@ -300,7 +295,7 @@ def example_results_from_dataset(model, ds, species_names, n_examples=5, venom_t
 # In[30]:
 
 
-example_results_from_dataset(model, test_dataset, species_metadata, n_examples=5)
+example_results_from_dataset(model, val_dataset, species_metadata, n_examples=5)
 
 
 # # Calculating scoring metrics
@@ -310,7 +305,7 @@ example_results_from_dataset(model, test_dataset, species_metadata, n_examples=5
 # In[37]:
 
 
-results_own_metrics= get_scores(model, image_metadata, test_dataset, venom_threshold=0.5)
+results_own_metrics= get_scores(model, image_metadata, val_dataset, venom_threshold=0.5)
 
 
 # # Plotting mistakes
