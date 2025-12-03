@@ -13,7 +13,7 @@ def load_metadata(
     base_path: str  = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)),
     species_csv_path: str = os.path.join("Data", "train_images_metadata.csv"),
     venom_csv_path: str = os.path.join("Data", "venomous_status_metadata.csv"),
-    train_image_path: str = os.path.join("Data", "train_images_large")
+    train_image_path: str = os.path.join("Data", "train_images_medium")
 ):
     #read the csv files
     species_csv = pd.read_csv(os.path.join(base_path, species_csv_path), index_col=0)
