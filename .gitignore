@@ -158,6 +158,8 @@ env.bak/
 venv.bak/
 src/Data/test_images_small
 src/Data/train_images_small
+src/Data/train_images_medium
+src/Data/test_images_medium
 src/Data/train_images_large
 src/Data/test_images_large
 

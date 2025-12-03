@@ -104,8 +104,8 @@ def load_img(path, image_resolution):
     img = tf.io.read_file(path)
 
     img = tf.image.decode_image(img, channels=3, expand_animations = False) #expand_animations = False needed, otherwise gif format isnt proper
-
-    img = tf.image.resize(img, [image_resolution, image_resolution])
+    img = tf.image.resize_with_pad(img, image_resolution, image_resolution)
+    #img = tf.image.resize(img, [image_resolution, image_resolution])
     return img
 
 

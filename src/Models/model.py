@@ -1,4 +1,7 @@
 from tensorflow.keras.layers import GlobalAveragePooling2D, Dense, Dropout
+
+from tensorflow.keras.layers import  RandomBrightness, GaussianNoise
+
 from tensorflow.keras.models import Model
 from tensorflow.keras.applications import EfficientNetB0
 from tensorflow.keras.layers import Input
@@ -16,19 +19,24 @@ def build_multitask_model(num_species, image_resolution=224):
 
     
     #Random rotates (+-9°), Flips,Zooms
+
     data_augmentation = tf.keras.Sequential(
         [
             RandomFlip("horizontal"),
-            RandomRotation(factor=0.05,     ),
+            RandomRotation(factor=0.05),
             RandomZoom(height_factor=0.1, width_factor=0.1),
             RandomContrast(0.1),
+            # Randomly darkens/lightens image (simulates sun/shade)
+            RandomBrightness(factor=0.2), 
+            # stddev=5.0 is appropriate for 0-255 pixel values, change if preprocess is changed!!
+            GaussianNoise(stddev=5.0),    
         ],
-        name="data_augmentation"
     )
+
     x = data_augmentation(inputs)
 
     #TODO experiment with different preprocessings
-    x = preprocess_input(x)
+    x = preprocess_input(x) #passthrtough, doesnt actually do anything
 
 
     base = EfficientNetB0(include_top=False, weights="imagenet")
