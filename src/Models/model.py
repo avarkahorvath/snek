@@ -29,7 +29,7 @@ def build_multitask_model(num_species, image_resolution=224):
             # Randomly darkens/lightens image (simulates sun/shade)
             RandomBrightness(factor=0.2), 
             # stddev=5.0 is appropriate for 0-255 pixel values, change if preprocess is changed!!
-            GaussianNoise(stddev=5.0),    
+            GaussianNoise(stddev=5.0 / 255.0),    
         ],
     )
 
